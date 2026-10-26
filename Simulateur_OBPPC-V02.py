@@ -118,7 +118,6 @@ if uploaded_file is not None:
         # Formater A et A-1 avec espace pour les milliers et virgule pour les décimales
         def format_nombre(val):
             if pd.isna(val): return ""
-            # Format: 1 958 734,00
             return f"{val:,.2f}".replace(',', ' ').replace('.', ',')
             
         df_affichage['A-1'] = df_affichage['A-1'].apply(format_nombre)
@@ -126,6 +125,13 @@ if uploaded_file is not None:
         
         # Formater la part en %
         df_affichage['Part vs Réal A'] = df_affichage['Part vs Réal A'].apply(lambda x: f"{x:.2f}%".replace('.', ','))
+
+        # --- SÉLECTION DES COLONNES À AFFICHER ---
+        colonnes_a_garder = [
+            'Entreprise', 'Segment', 'Marque', 'Emballage', 'Contenance en cl', 
+            'Format', 'SKU', 'PVF', 'A-1', 'A', 'Part vs Réal A'
+        ]
+        df_affichage = df_affichage[colonnes_a_garder]
 
         # Affichage du tableau
         st.subheader("Tableau de Base Enrichi")
