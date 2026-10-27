@@ -52,7 +52,7 @@ data_fixe = [
 ]
 df_fixe = pd.DataFrame(data_fixe)
 
-# Liste des PVF avec doublons pour l'effet escalier
+# Liste des PVF avec doublons
 liste_pvf = [1000, 1200, 1200, 1500, 1500, 2000, 2000, 2500, 2500, 3000, 3000, 3500, 3500, 4000, 4000, 4500, 4500, 5000, 5000]
 
 # ==========================================
@@ -107,21 +107,16 @@ if uploaded_file is not None:
         # ==========================================
         df_affichage = df_final.copy()
         
-        # Formater les prix avec espace
         df_affichage['PVF'] = df_affichage['PVF'].apply(lambda x: f"{int(x):,} Ar".replace(',', ' '))
         
-        # Formater A et A-1
         def format_nombre(val):
             if pd.isna(val): return ""
             return f"{val:,.2f}".replace(',', ' ').replace('.', ',')
             
         df_affichage['A-1'] = df_affichage['A-1'].apply(format_nombre)
         df_affichage['A'] = df_affichage['A'].apply(format_nombre)
-        
-        # Formater la part en %
         df_affichage['Part vs Réal A'] = df_affichage['Part vs Réal A'].apply(lambda x: f"{x:.2f}%".replace('.', ','))
 
-        # Sélection des colonnes
         colonnes_a_garder = [
             'Entreprise', 'Segment', 'Marque', 'Emballage', 'Contenance en cl', 
             'Format', 'SKU', 'PVF', 'A-1', 'A', 'Part vs Réal A'
@@ -132,7 +127,7 @@ if uploaded_file is not None:
         st.dataframe(df_affichage, use_container_width=True, hide_index=True)
 
         # ==========================================
-        # 4. CALCUL DU TABLEAU DE CUMUL ET GRAPHIQUE
+        # 4. CALCUL DU TABLEAU DE CUMUL
         # ==========================================
         resultats = []
         cumul_habibo = 0.0
@@ -148,46 +143,53 @@ if uploaded_file is not None:
             
             resultats.append({
                 'PVF': pvf,
-                'Cumul HABIBO': cumul_habibo,
-                'Cumul STAR': cumul_star,
+                'HABIBO': part_habibo,
+                'STAR': part_star,
+                'Total général': part_habibo + part_star,
+                'Cumul Habibo': cumul_habibo,
+                'Cumul Star': cumul_star,
                 'Cumul TOTAL MARCHÉ': cumul_habibo + cumul_star
             })
 
         df_resultat = pd.DataFrame(resultats)
 
-        # Création du graphique
-        st.subheader("2. Graphique d'évolution des cumuls par PVF")
+        # --- AFFICHAGE DU TABLEAU DE CUMUL ---
+        st.subheader("2. Tableau de Cumul par PVF")
+        
+        df_cumul_affichage = df_resultat.copy()
+        df_cumul_affichage['PVF'] = df_cumul_affichage['PVF'].apply(lambda x: f"{int(x):,} Ar".replace(',', ' '))
+        
+        colonnes_pct = ['HABIBO', 'STAR', 'Total général', 'Cumul Habibo', 'Cumul Star', 'Cumul TOTAL MARCHÉ']
+        for col in colonnes_pct:
+            df_cumul_affichage[col] = df_cumul_affichage[col].apply(lambda x: f"{x:.2f}%".replace('.', ','))
+            
+        st.dataframe(df_cumul_affichage, use_container_width=True, hide_index=True)
+
+        # ==========================================
+        # 5. GRAPHIQUE (UNIQUEMENT CUMUL STAR)
+        # ==========================================
+        st.subheader("3. Graphique du Cumul STAR par PVF")
         
         fig = go.Figure()
 
+        # Ajout de la seule trace pour le Cumul Star
         fig.add_trace(go.Scatter(
-            x=df_resultat['PVF'], y=df_resultat['Cumul HABIBO'], 
-            mode='lines', name='Cumul Habibo', 
-            line=dict(shape='hv', color='#7b2cbf', width=2)
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=df_resultat['PVF'], y=df_resultat['Cumul STAR'], 
-            mode='lines', name='Cumul Star', 
-            line=dict(shape='hv', color='#0077b6', width=2)
-        ))
-        
-        fig.add_trace(go.Scatter(
-            x=df_resultat['PVF'], y=df_resultat['Cumul TOTAL MARCHÉ'], 
-            mode='lines', name='Cumul TOTAL MARCHÉ', 
-            line=dict(shape='hv', color='#f77f00', width=2)
+            x=df_resultat['PVF'], y=df_resultat['Cumul Star'], 
+            mode='lines+markers', name='Cumul Star', 
+            line=dict(shape='hv', color='#0077b6', width=3),
+            marker=dict(size=6, color='#0077b6')
         ))
 
-        # Annotations
+        # Annotations (uniquement pour la courbe Star)
         df_annot = df_resultat.drop_duplicates(subset=['PVF'], keep='last')
         annotations = []
         
         for i, row in df_annot.iterrows():
-            if row['Cumul TOTAL MARCHÉ'] > 0:
+            if row['Cumul Star'] > 0:
                 annotations.append(dict(
                     x=row['PVF'],
-                    y=row['Cumul TOTAL MARCHÉ'],
-                    text=f"{int(row['PVF'])} Ar; {row['Cumul TOTAL MARCHÉ']:.2f}%",
+                    y=row['Cumul Star'],
+                    text=f"{int(row['PVF'])} Ar; {row['Cumul Star']:.2f}%",
                     showarrow=True,
                     arrowhead=2,
                     ax=-50,
@@ -201,19 +203,19 @@ if uploaded_file is not None:
         fig.update_layout(
             annotations=annotations,
             xaxis_title="Prix (Ar)",
-            yaxis_title="Pourcentage (%)",
+            yaxis_title="Cumul Star (%)",
             yaxis=dict(tickformat=".2f", range=[0, 105]),
             xaxis=dict(
                 tickmode='array', 
                 tickvals=sorted(list(set(liste_pvf))),
-                range=[0, 5500] # Pour zoomer et ignorer les prix > 5500
+                range=[0, 5500]
             ),
             legend=dict(
                 orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5
             ),
             hovermode="x unified",
             template="plotly_white",
-            height=700,
+            height=600,
             margin=dict(l=40, r=40, t=40, b=40)
         )
 
