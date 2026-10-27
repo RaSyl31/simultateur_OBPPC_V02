@@ -52,7 +52,6 @@ data_fixe = [
 ]
 df_fixe = pd.DataFrame(data_fixe)
 
-# Liste des PVF avec doublons
 liste_pvf = [1000, 1200, 1200, 1500, 1500, 2000, 2000, 2500, 2500, 3000, 3000, 3500, 3500, 4000, 4000, 4500, 4500, 5000, 5000]
 
 # ==========================================
@@ -63,27 +62,37 @@ uploaded_file = st.sidebar.file_uploader("Fichier Excel/CSV", type=["xlsx", "csv
 
 if uploaded_file is not None:
     try:
-        # Lecture du fichier
+        # Lecture du fichier (on saute les 2 premières lignes)
         if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file, skiprows=2)
         else:
             df_raw = pd.read_excel(uploaded_file, skiprows=2)
 
+        # On garde uniquement les 3 premières colonnes : SKU, Vente A, Evol
         df_raw = df_raw.iloc[:, [0, 1, 2]] 
         df_raw.columns = ['SKU', 'A', 'Evol_Pct']
 
-        # Nettoyage
+        # --- NETTOYAGE ---
+        # 1. Supprimer les lignes où le SKU est vide
         df_raw = df_raw.dropna(subset=['SKU'])
         df_raw['SKU'] = df_raw['SKU'].astype(str).str.strip()
+        
+        # 2. Supprimer la ligne "Total" si elle existe dans le fichier
         df_raw = df_raw[~df_raw['SKU'].str.lower().isin(['', 'total', 'nan'])]
 
+        # 3. Convertir la colonne A en nombre (nettoyer les espaces et virgules)
         df_raw['A'] = df_raw['A'].astype(str).str.replace(' ', '').str.replace(',', '.')
         df_raw['A'] = pd.to_numeric(df_raw['A'], errors='coerce').fillna(0)
 
+        # 4. Convertir la colonne Evol en nombre
         df_raw['Evol_Pct'] = df_raw['Evol_Pct'].astype(str).str.replace('%', '').str.replace(' ', '').str.replace(',', '.')
         df_raw['Evol_Pct'] = pd.to_numeric(df_raw['Evol_Pct'], errors='coerce')
 
-        # Calcul A-1
+        # --- CALCUL DU TOTAL GENERAL ---
+        # C'est la somme de toutes les ventes A (sans la ligne Total)
+        total_general = df_raw['A'].sum()
+
+        # --- CALCUL DE A-1 ---
         def calculate_A1(row):
             evol = row['Evol_Pct']
             val_A = row['A']
@@ -92,12 +101,13 @@ if uploaded_file is not None:
             else: return val_A / (1 + (evol / 100))
         df_raw['A-1'] = df_raw.apply(calculate_A1, axis=1)
 
-        # Calcul Part
-        total_general = df_raw['A'].sum()
+        # --- CALCUL DE LA PART vs REAL A ---
         df_raw['Part vs Réal A'] = (df_raw['A'] / total_general) * 100
 
-        # Fusion
+        # --- FUSION AVEC LE RÉFÉRENTIEL ---
         df_final = pd.merge(df_fixe, df_raw, on="SKU", how="left")
+        
+        # Remplir les NaN par 0
         df_final['A'] = df_final['A'].fillna(0)
         df_final['A-1'] = df_final['A-1'].fillna(0)
         df_final['Part vs Réal A'] = df_final['Part vs Réal A'].fillna(0)
@@ -105,8 +115,13 @@ if uploaded_file is not None:
         # ==========================================
         # 3. AFFICHAGE DU TABLEAU PRINCIPAL
         # ==========================================
+        
+        # AFFICHAGE DE CONTRÔLE DU TOTAL
+        st.info(f"🔍 **Total Général des ventes A calculé par l'outil :** {total_general:,.2f} Ar")
+
         df_affichage = df_final.copy()
         
+        # Formatage des colonnes
         df_affichage['PVF'] = df_affichage['PVF'].apply(lambda x: f"{int(x):,} Ar".replace(',', ' '))
         
         def format_nombre(val):
@@ -127,7 +142,7 @@ if uploaded_file is not None:
         st.dataframe(df_affichage, use_container_width=True, hide_index=True)
 
         # ==========================================
-        # 4. CALCUL DU TABLEAU DE CUMUL
+        # 4. CALCUL DU TABLEAU DE CUMUL ET GRAPHIQUE
         # ==========================================
         resultats = []
         cumul_habibo = 0.0
@@ -165,14 +180,11 @@ if uploaded_file is not None:
             
         st.dataframe(df_cumul_affichage, use_container_width=True, hide_index=True)
 
-        # ==========================================
-        # 5. GRAPHIQUE (UNIQUEMENT CUMUL STAR)
-        # ==========================================
+        # --- CRÉATION DU GRAPHIQUE (UNIQUEMENT CUMUL STAR) ---
         st.subheader("3. Graphique du Cumul STAR par PVF")
         
         fig = go.Figure()
 
-        # Ajout de la seule trace pour le Cumul Star
         fig.add_trace(go.Scatter(
             x=df_resultat['PVF'], y=df_resultat['Cumul Star'], 
             mode='lines+markers', name='Cumul Star', 
@@ -180,7 +192,6 @@ if uploaded_file is not None:
             marker=dict(size=6, color='#0077b6')
         ))
 
-        # Annotations (uniquement pour la courbe Star)
         df_annot = df_resultat.drop_duplicates(subset=['PVF'], keep='last')
         annotations = []
         
