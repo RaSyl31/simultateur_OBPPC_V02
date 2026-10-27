@@ -62,37 +62,27 @@ uploaded_file = st.sidebar.file_uploader("Fichier Excel/CSV", type=["xlsx", "csv
 
 if uploaded_file is not None:
     try:
-        # Lecture du fichier (on saute les 2 premières lignes)
+        # Lecture du fichier
         if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file, skiprows=2)
         else:
             df_raw = pd.read_excel(uploaded_file, skiprows=2)
 
-        # On garde uniquement les 3 premières colonnes : SKU, Vente A, Evol
         df_raw = df_raw.iloc[:, [0, 1, 2]] 
         df_raw.columns = ['SKU', 'A', 'Evol_Pct']
 
-        # --- NETTOYAGE ---
-        # 1. Supprimer les lignes où le SKU est vide
+        # Nettoyage
         df_raw = df_raw.dropna(subset=['SKU'])
         df_raw['SKU'] = df_raw['SKU'].astype(str).str.strip()
-        
-        # 2. Supprimer la ligne "Total" si elle existe dans le fichier
         df_raw = df_raw[~df_raw['SKU'].str.lower().isin(['', 'total', 'nan'])]
 
-        # 3. Convertir la colonne A en nombre (nettoyer les espaces et virgules)
         df_raw['A'] = df_raw['A'].astype(str).str.replace(' ', '').str.replace(',', '.')
         df_raw['A'] = pd.to_numeric(df_raw['A'], errors='coerce').fillna(0)
 
-        # 4. Convertir la colonne Evol en nombre
         df_raw['Evol_Pct'] = df_raw['Evol_Pct'].astype(str).str.replace('%', '').str.replace(' ', '').str.replace(',', '.')
         df_raw['Evol_Pct'] = pd.to_numeric(df_raw['Evol_Pct'], errors='coerce')
 
-        # --- CALCUL DU TOTAL GENERAL ---
-        # C'est la somme de toutes les ventes A (sans la ligne Total)
-        total_general = df_raw['A'].sum()
-
-        # --- CALCUL DE A-1 ---
+        # Calcul A-1
         def calculate_A1(row):
             evol = row['Evol_Pct']
             val_A = row['A']
@@ -101,35 +91,34 @@ if uploaded_file is not None:
             else: return val_A / (1 + (evol / 100))
         df_raw['A-1'] = df_raw.apply(calculate_A1, axis=1)
 
-        # --- CALCUL DE LA PART vs REAL A ---
-        df_raw['Part vs Réal A'] = (df_raw['A'] / total_general) * 100
-
-        # --- FUSION AVEC LE RÉFÉRENTIEL ---
+        # --- FUSION AVANT LE CALCUL DE LA PART ---
         df_final = pd.merge(df_fixe, df_raw, on="SKU", how="left")
         
-        # Remplir les NaN par 0
         df_final['A'] = df_final['A'].fillna(0)
         df_final['A-1'] = df_final['A-1'].fillna(0)
-        df_final['Part vs Réal A'] = df_final['Part vs Réal A'].fillna(0)
+
+        # --- CALCUL DE LA PART vs REAL A SUR LE TABLEAU FUSIONNÉ ---
+        total_general = df_final['A'].sum()
+        df_final['Part vs Réal A'] = (df_final['A'] / total_general) * 100
 
         # ==========================================
         # 3. AFFICHAGE DU TABLEAU PRINCIPAL
         # ==========================================
         
-        # AFFICHAGE DE CONTRÔLE DU TOTAL
-        st.info(f"🔍 **Total Général des ventes A calculé par l'outil :** {total_general:,.2f} Ar")
+        st.info(f"🔍 **Total Général des ventes A (utilisé pour le calcul) :** {total_general:,.2f}")
 
         df_affichage = df_final.copy()
         
-        # Formatage des colonnes
         df_affichage['PVF'] = df_affichage['PVF'].apply(lambda x: f"{int(x):,} Ar".replace(',', ' '))
         
         def format_nombre(val):
             if pd.isna(val): return ""
             return f"{val:,.2f}".replace(',', ' ').replace('.', ',')
             
+        # On formate A-1 en texte pour l'affichage, mais on garde A en numérique pour le total Streamlit
         df_affichage['A-1'] = df_affichage['A-1'].apply(format_nombre)
-        df_affichage['A'] = df_affichage['A'].apply(format_nombre)
+        
+        # On formate la part en %
         df_affichage['Part vs Réal A'] = df_affichage['Part vs Réal A'].apply(lambda x: f"{x:.2f}%".replace('.', ','))
 
         colonnes_a_garder = [
@@ -139,7 +128,20 @@ if uploaded_file is not None:
         df_affichage = df_affichage[colonnes_a_garder]
 
         st.subheader("1. Tableau de Base Enrichi")
-        st.dataframe(df_affichage, use_container_width=True, hide_index=True)
+        
+        # --- CONFIGURATION AVEC TOTAL EN BAS ---
+        st.dataframe(
+            df_affichage, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "A": st.column_config.NumberColumn(
+                    "A",
+                    format="%,.2f", 
+                    help="Ventes Réalisées A"
+                )
+            }
+        )
 
         # ==========================================
         # 4. CALCUL DU TABLEAU DE CUMUL ET GRAPHIQUE
