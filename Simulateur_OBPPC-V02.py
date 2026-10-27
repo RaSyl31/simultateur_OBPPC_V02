@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Graphique PVF", layout="wide")
+st.set_page_config(page_title="Analyse PVF", layout="wide")
 st.title("Analyse des Parts de Marché par Tranche de Prix (PVF)")
 
 # ==========================================
@@ -52,7 +52,7 @@ data_fixe = [
 ]
 df_fixe = pd.DataFrame(data_fixe)
 
-# Liste des PVF avec doublons pour forcer l'effet escalier
+# Liste des PVF avec doublons pour l'effet escalier
 liste_pvf = [1000, 1200, 1200, 1500, 1500, 2000, 2000, 2500, 2500, 3000, 3000, 3500, 3500, 4000, 4000, 4500, 4500, 5000, 5000]
 
 # ==========================================
@@ -63,7 +63,7 @@ uploaded_file = st.sidebar.file_uploader("Fichier Excel/CSV", type=["xlsx", "csv
 
 if uploaded_file is not None:
     try:
-        # Lecture
+        # Lecture du fichier
         if uploaded_file.name.endswith('.csv'):
             df_raw = pd.read_csv(uploaded_file, skiprows=2)
         else:
@@ -103,27 +103,51 @@ if uploaded_file is not None:
         df_final['Part vs Réal A'] = df_final['Part vs Réal A'].fillna(0)
 
         # ==========================================
-        # 3. CALCUL DU TABLEAU DE CUMUL (Pour le graphique)
+        # 3. AFFICHAGE DU TABLEAU PRINCIPAL
+        # ==========================================
+        df_affichage = df_final.copy()
+        
+        # Formater les prix avec espace
+        df_affichage['PVF'] = df_affichage['PVF'].apply(lambda x: f"{int(x):,} Ar".replace(',', ' '))
+        
+        # Formater A et A-1
+        def format_nombre(val):
+            if pd.isna(val): return ""
+            return f"{val:,.2f}".replace(',', ' ').replace('.', ',')
+            
+        df_affichage['A-1'] = df_affichage['A-1'].apply(format_nombre)
+        df_affichage['A'] = df_affichage['A'].apply(format_nombre)
+        
+        # Formater la part en %
+        df_affichage['Part vs Réal A'] = df_affichage['Part vs Réal A'].apply(lambda x: f"{x:.2f}%".replace('.', ','))
+
+        # Sélection des colonnes
+        colonnes_a_garder = [
+            'Entreprise', 'Segment', 'Marque', 'Emballage', 'Contenance en cl', 
+            'Format', 'SKU', 'PVF', 'A-1', 'A', 'Part vs Réal A'
+        ]
+        df_affichage = df_affichage[colonnes_a_garder]
+
+        st.subheader("1. Tableau de Base Enrichi")
+        st.dataframe(df_affichage, use_container_width=True, hide_index=True)
+
+        # ==========================================
+        # 4. CALCUL DU TABLEAU DE CUMUL ET GRAPHIQUE
         # ==========================================
         resultats = []
         cumul_habibo = 0.0
         cumul_star = 0.0
 
         for pvf in liste_pvf:
-            # Somme des parts pour ce PVF
             part_habibo = df_final[(df_final['PVF'] == pvf) & (df_final['Entreprise'] == 'HABIBO')]['Part vs Réal A'].sum()
             part_star = df_final[(df_final['PVF'] == pvf) & (df_final['Entreprise'] == 'STAR')]['Part vs Réal A'].sum()
             
-            # On met à jour le cumul uniquement si on change de PVF (gestion des doublons)
             if not resultats or resultats[-1]['PVF'] != pvf:
                 cumul_habibo += part_habibo
                 cumul_star += part_star
             
             resultats.append({
                 'PVF': pvf,
-                'HABIBO': part_habibo,
-                'STAR': part_star,
-                'Total général': part_habibo + part_star,
                 'Cumul HABIBO': cumul_habibo,
                 'Cumul STAR': cumul_star,
                 'Cumul TOTAL MARCHÉ': cumul_habibo + cumul_star
@@ -131,14 +155,11 @@ if uploaded_file is not None:
 
         df_resultat = pd.DataFrame(resultats)
 
-        # ==========================================
-        # 4. CRÉATION DU GRAPHIQUE (Plotly)
-        # ==========================================
-        st.subheader("Graphique d'évolution des cumuls par PVF")
+        # Création du graphique
+        st.subheader("2. Graphique d'évolution des cumuls par PVF")
         
         fig = go.Figure()
 
-        # Ajout des lignes (shape='hv' pour l'effet escalier)
         fig.add_trace(go.Scatter(
             x=df_resultat['PVF'], y=df_resultat['Cumul HABIBO'], 
             mode='lines', name='Cumul Habibo', 
@@ -157,8 +178,7 @@ if uploaded_file is not None:
             line=dict(shape='hv', color='#f77f00', width=2)
         ))
 
-        # Ajout des annotations (flèches) sur la ligne orange
-        # On utilise drop_duplicates pour ne pas mettre 2 étiquettes au même endroit
+        # Annotations
         df_annot = df_resultat.drop_duplicates(subset=['PVF'], keep='last')
         annotations = []
         
@@ -170,8 +190,8 @@ if uploaded_file is not None:
                     text=f"{int(row['PVF'])} Ar; {row['Cumul TOTAL MARCHÉ']:.2f}%",
                     showarrow=True,
                     arrowhead=2,
-                    ax=-50, # Décalage de la flèche vers la gauche
-                    ay=-30, # Décalage de la flèche vers le haut
+                    ax=-50,
+                    ay=-30,
                     bgcolor="white",
                     bordercolor="gray",
                     borderwidth=1,
@@ -186,7 +206,7 @@ if uploaded_file is not None:
             xaxis=dict(
                 tickmode='array', 
                 tickvals=sorted(list(set(liste_pvf))),
-                range=[0, 5500] # Limite l'axe X pour zoomer sur les prix (comme sur votre image)
+                range=[0, 5500] # Pour zoomer et ignorer les prix > 5500
             ),
             legend=dict(
                 orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5
@@ -202,4 +222,4 @@ if uploaded_file is not None:
     except Exception as e:
         st.error(f"Erreur lors du traitement : {e}")
 else:
-    st.info("Veuillez uploader le fichier Excel pour générer le graphique.")
+    st.info("Veuillez uploader le fichier Excel pour générer l'analyse.")
